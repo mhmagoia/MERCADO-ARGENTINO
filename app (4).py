@@ -3,6 +3,7 @@ Dashboard Letras / Mercado AR  ·  Streamlit
 Fuentes (sin API key): data912 (letras, bonos, ONs) · BCRA API v4.0 (A3500, bandas, TAMAR,
 BADLAR, CER, REM) · dolarapi.com (dólares) · argentinadatos.com (riesgo país, inflación).
 """
+import re
 import unicodedata
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,18 +19,51 @@ st.set_page_config(page_title="Letras AR", page_icon="📈", layout="wide",
 TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 HOY = datetime.now(TZ).date()
 
-# ── Catálogo de letras: ticker -> (vencimiento, monto al vencimiento por VN 100) ──────────
-# Tomado de la hoja LETRAS de tu Excel. Verificá contra el resultado de la licitación.
-# Para sumar una letra nueva, agregá una línea.
-CATALOGO = {
-    "S30O6": ("2026-10-30", 135.2782),
-    "S30N6": ("2026-11-30", 129.8882),
-    "T15E7": ("2027-01-15", 161.1038),
-    "S29E7": ("2027-01-29", 111.8507),
-    "T30A7": ("2027-04-30", 157.3410),
-    "T31Y7": ("2027-05-31", 151.5628),
-    "T30J7": ("2027-06-30", 156.4353),
+# ── Catálogo de letras: ticker -> (fecha de emisión, TEM de capitalización) ──────────────
+# El vencimiento se deduce solo del ticker (S30N6 = 30/nov/2026) y el monto al vencimiento se
+# calcula igual que en tu Excel: 100 × (1+TEM)^(DAYS360/30). Los datos de cada letra nueva están en
+# el comunicado "Resultado de la licitación" de la Secretaría de Finanzas ("capitaliza a una TEM de X%").
+LECAPS = {
+    "S30O6": ("2025-10-31", 0.0255),
+    "S30N6": ("2025-12-15", 0.0230),
+    "T15E7": ("2025-01-31", 0.0205),
+    "S29E7": ("2026-08-28", 0.0225),
+    "T30A7": ("2025-10-31", 0.0255),
+    "T31Y7": ("2025-12-15", 0.0240),
+    "T30J7": ("2026-01-13", 0.0258),
 }
+MESES = dict(zip("EFMAYJLGSOND", range(1, 13)))
+TIPOS = {"S": "LECAP", "T": "BONCAP", "D": "Dólar-linked", "X": "CER", "M": "TAMAR"}
+
+
+def parse_ticker(tk):
+    """Devuelve (tipo, vencimiento) a partir del ticker, ej. 'S30N6' -> ('LECAP', 2026-11-30)."""
+    m = re.match(r"^([STDXM])(\d{2})([EFMAYJLGSOND])(\d)$", str(tk))
+    if not m:
+        return None, None
+    try:
+        return TIPOS[m[1]], date(2020 + int(m[4]), MESES[m[3]], int(m[2]))
+    except ValueError:
+        return TIPOS[m[1]], None
+
+
+def days360(a, b):  # igual al DAYS360 de Excel (método US, sin casos de fin de febrero)
+    d1, d2 = min(a.day, 30), b.day
+    if d2 == 31 and d1 == 30:
+        d2 = 30
+    return (b.year - a.year) * 360 + (b.month - a.month) * 30 + d2 - d1
+
+
+def monto_vto(emision, tem, vto):
+    return 100 * (1 + tem) ** (days360(date.fromisoformat(emision), vto) / 30)
+
+
+COLS = {"symbol": "Ticker", "c": "Precio", "px_bid": "Compra", "px_ask": "Venta",
+        "pct_change": "Var. diaria %", "v": "Volumen"}
+CFG = {"Precio": st.column_config.NumberColumn(format="%.2f"),
+       "Compra": st.column_config.NumberColumn(format="%.2f"),
+       "Venta": st.column_config.NumberColumn(format="%.2f"),
+       "Var. diaria %": st.column_config.NumberColumn(format="%.2f%%")}
 
 # ── Estilo + modo móvil (en pantallas chicas las métricas se acomodan de a 2) ────────────
 st.markdown("""<style>
@@ -159,13 +193,14 @@ def grafico(series, titulo, h=340, barras=False):
     st.plotly_chart(fig)
 
 
-def analizar_letras(notes, tc):
+def analizar_letras(notes, tc, lecaps):
     px = notes.set_index("symbol")
     filas = []
-    for tk, (vto, pago) in CATALOGO.items():
-        dias = (date.fromisoformat(vto) - HOY).days
-        if tk not in px.index or dias <= 0:
+    for tk, (emi, tem) in lecaps.items():
+        _, vto = parse_ticker(tk)
+        if vto is None or tk not in px.index or (vto - HOY).days <= 0:
             continue
+        dias, pago = (vto - HOY).days, monto_vto(emi, tem, vto)
         r = px.loc[tk]
         p = next((float(r[c]) for c in ("c", "px_ask", "px_bid")
                   if c in r and pd.notna(r[c]) and float(r[c]) > 0), None)
@@ -174,13 +209,13 @@ def analizar_letras(notes, tc):
         if p < 5:  # algunas fuentes cotizan por VN 1 en vez de VN 100
             p *= 100
         rend = pago / p - 1
-        filas.append({"Letra": tk, "Vencimiento": vto, "Días": dias, "Precio": p, "Ask": r.get("px_ask"),
+        filas.append({"Letra": tk, "Vencimiento": vto.isoformat(), "Días": dias, "Precio": p,
+                      "Venta": r.get("px_ask"), "Var. diaria %": r.get("pct_change"),
                       "Pago al vto": pago, "Rend. directo %": rend * 100,
                       "TNA %": rend * 365 / dias * 100,
                       "TEA %": ((1 + rend) ** (365 / dias) - 1) * 100,
                       "TEM %": ((1 + rend) ** (30 / dias) - 1) * 100,
-                      "TC breakeven": tc * (1 + rend) if tc else None,
-                      "Var. día %": r.get("pct_change")})
+                      "TC breakeven": tc * (1 + rend) if tc else None})
     return pd.DataFrame(filas)
 
 
@@ -255,11 +290,12 @@ def tablero():
         if notes is None or notes.empty:
             st.warning("No se pudo leer la cotización de letras (data912).")
         else:
-            df = analizar_letras(notes, tc)
+            lecaps = {**LECAPS, **st.session_state.get("extra", {})}
+            df = analizar_letras(notes, tc, lecaps)
             if df.empty:
-                st.info("Ninguna letra del catálogo cotiza hoy. Revisá CATALOGO en app.py.")
+                st.info("Ninguna letra del catálogo cotiza hoy. Revisá LECAPS en app.py.")
             else:
-                st.dataframe(df.round(2), hide_index=True, column_config={
+                st.dataframe(df.round(2), hide_index=True, column_config={**CFG,
                     "Rend. directo %": st.column_config.NumberColumn(format="%.2f%%"),
                     "TNA %": st.column_config.NumberColumn(format="%.2f%%"),
                     "TEA %": st.column_config.NumberColumn(format="%.2f%%"),
@@ -275,10 +311,49 @@ def tablero():
                 st.plotly_chart(fig)
                 st.caption("TNA/TEA con base 365 sobre el último precio operado. "
                            "TC breakeven: el A3500 al vencimiento que iguala el rendimiento de la letra.")
-            otras = notes[~notes["symbol"].isin(CATALOGO)]
-            with st.expander(f"Otras letras/bonos cortos en vivo ({len(otras)}) · sin catálogo"):
-                cols = [x for x in ("symbol", "c", "px_bid", "px_ask", "pct_change", "v") if x in otras]
-                st.dataframe(otras[cols], hide_index=True)
+
+            o = notes[~notes["symbol"].isin(lecaps)].copy()
+            pt = o["symbol"].map(parse_ticker)
+            o["Tipo"] = [p[0] or "Otro" for p in pt]
+            o["Vencimiento"] = [p[1].isoformat() if p[1] else "—" for p in pt]
+            o["TNA / TIR"] = ["⚠️ falta cargar TEM (calculadora)" if t in ("LECAP", "BONCAP")
+                              else "no calculada" for t in o["Tipo"]]
+            pend = [x for x, t in zip(o["symbol"], o["Tipo"]) if t in ("LECAP", "BONCAP")]
+            if pend:
+                st.warning(f"Letras detectadas sin tasa cargada: {', '.join(pend)}. "
+                           "Cargalas en la calculadora de abajo.")
+            with st.expander("➕ Calculadora: agregar una letra nueva"):
+                st.caption("Datos en el comunicado de licitación de la Secretaría de Finanzas: fecha de "
+                           "emisión y 'capitaliza a una TEM de X%'. El vencimiento sale del ticker. "
+                           "Queda cargada mientras no se reinicie la app; para dejarla fija, pegá la "
+                           "línea que se genera dentro de LECAPS en app.py.")
+                if "ultima" in st.session_state:
+                    st.success(st.session_state["ultima"][0])
+                    st.code(st.session_state["ultima"][1], language="python")
+                with st.form("nueva_letra"):
+                    tk = st.text_input("Ticker", value=pend[0] if pend else "",
+                                       placeholder="ej: S13N6").upper().strip()
+                    emi = st.date_input("Fecha de emisión", value=HOY)
+                    tem = st.number_input("TEM de capitalización (%)", 0.0, 20.0, 2.0, 0.01)
+                    ok = st.form_submit_button("Calcular y agregar")
+                if ok:
+                    tipo, vto = parse_ticker(tk)
+                    if tipo not in ("LECAP", "BONCAP") or vto is None:
+                        st.error("Ticker no reconocido. Formato esperado: S30N6 o T15E7.")
+                    else:
+                        st.session_state.setdefault("extra", {})[tk] = (emi.isoformat(), tem / 100)
+                        pago = monto_vto(emi.isoformat(), tem / 100, vto)
+                        st.session_state["ultima"] = (
+                            f"{tk} agregada: vence {vto:%d/%m/%Y}, paga {pago:.4f} cada 100 VN.",
+                            f'"{tk}": ("{emi.isoformat()}", {tem / 100:.4f}),')
+                        st.rerun()
+            with st.expander(f"Otras letras y bonos cortos en vivo ({len(o)})"):
+                t = o[[c for c in COLS if c in o] + ["Tipo", "Vencimiento", "TNA / TIR"]].rename(columns=COLS)
+                orden = ["Ticker", "Tipo", "Vencimiento", "Precio", "Var. diaria %", "TNA / TIR",
+                         "Compra", "Venta", "Volumen"]
+                st.dataframe(t[[c for c in orden if c in t]], hide_index=True, column_config=CFG)
+                st.caption("Dólar-linked, CER y TAMAR dependen de variables futuras (A3500, inflación, "
+                           "tasa), por eso no se calcula una tasa fija.")
 
     with tab3:
         grafico({"Riesgo país (pb)": riesgo.tail(365) if riesgo is not None else None}, "Riesgo país")
@@ -296,8 +371,8 @@ def tablero():
             q = st.text_input(f"Filtrar {nombre.lower()}", key=nombre, placeholder="ej: AL30, GD30, YMC")
             if q:
                 d = d[d["symbol"].str.contains(q.strip(), case=False, na=False)]
-            cols = [x for x in ("symbol", "c", "px_bid", "px_ask", "pct_change", "v") if x in d]
-            st.dataframe(d[cols], hide_index=True)
+            st.dataframe(d[[c for c in COLS if c in d]].rename(columns=COLS), hide_index=True,
+                         column_config=CFG)
 
     with st.expander("Estado de las fuentes"):
         st.write("  \n".join(f"{v} {k}" for k, v in ESTADO.items()))
