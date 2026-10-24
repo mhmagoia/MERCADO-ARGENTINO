@@ -44,3 +44,79 @@ html,body,.stApp,.stApp p,.stApp label,.stApp li,.stApp button p,.stApp input,.s
 
 
 def estilos():
+    st.markdown(CSS, unsafe_allow_html=True)
+
+
+def cabecera():
+    st.markdown('<div class="cab"><div class="cab-t">Tablero de Renta Fija Argentina</div>'
+                '<div class="cab-s">Letras del Tesoro, bonos soberanos y obligaciones negociables · '
+                'tipo de cambio, tasas e inflación</div></div>', unsafe_allow_html=True)
+
+
+def fmt(x, dec=2, pre="", suf=""):
+    if x is None or pd.isna(x):
+        return "s/d"
+    x = round(float(x), dec) + 0.0  # evita "-0,00"
+    return pre + f"{x:,.{dec}f}".replace(",", "X").replace(".", ",").replace("X", ".") + suf
+
+
+def ult(s):
+    if s is None or len(s) == 0:
+        return None, None
+    v = s.iloc[-1]
+    d = (v / s.iloc[-2] - 1) * 100 if len(s) > 1 and s.iloc[-2] else None
+    return v, d
+
+
+def tarjetas(titulo, items, color):
+    """Grilla de tarjetas (etiqueta, valor, variación numérica o None) con color de acento."""
+    h = [f'<div class="sec" style="--ac:{color}">{titulo}</div><div class="grid">']
+    for lab, val, dlt in items:
+        d = ""
+        if dlt is not None and not pd.isna(dlt):
+            cls, flecha = ("up", "▲") if dlt >= 0 else ("down", "▼")
+            d = f'<div class="d {cls}">{flecha} {fmt(abs(dlt), 2, suf="%")}</div>'
+        h.append(f'<div class="card" style="--ac:{color}"><div class="l">{lab}</div>'
+                 f'<div class="v">{val}</div>{d}</div>')
+    st.markdown("".join(h) + "</div>", unsafe_allow_html=True)
+
+
+def grafico(series, titulo, colores=None, h=320, barras=False, y=None):
+    fig = go.Figure()
+    for i, (nombre, s) in enumerate(series.items()):
+        if s is None or len(s) == 0:
+            continue
+        col = (colores or {}).get(nombre, PAL[i % len(PAL)])
+        if barras:
+            fig.add_bar(x=s.index, y=s.values, name=nombre, marker_color=col)
+        else:
+            fig.add_scatter(x=s.index, y=s.values, name=nombre, mode="lines",
+                            line=dict(color=col, width=2.2))
+    fig.update_layout(title=dict(text=titulo, font=dict(size=15)), height=h, yaxis_title=y,
+                      margin=dict(l=8, r=8, t=44, b=8), hovermode="x unified",
+                      legend=dict(orientation="h", y=-0.18))
+    st.plotly_chart(fig, key=titulo)
+
+
+def vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
+                  im, rm, a3500, b_sup, b_inf):
+    margen = lambda b: fmt((b / tc - 1) * 100, 1, suf="%") if b and tc else "s/d"
+    tarjetas("Tipo de cambio", [
+        ("A3500 mayorista", fmt(tc, 2, "$ "), tc_d), ("Oficial (venta)", fmt(ofi, 2, "$ "), None),
+        ("MEP", fmt(mep, 2, "$ "), None), ("CCL", fmt(ccl, 2, "$ "), None),
+        ("Blue", fmt(blue, 2, "$ "), None), ("Brecha CCL / oficial", fmt(brecha, 1, suf="%"), None)], AZUL)
+    tarjetas("Bandas cambiarias", [
+        ("Banda superior", fmt(sup, 2, "$ "), None), ("Banda inferior", fmt(inf_, 2, "$ "), None),
+        ("Margen a banda superior", margen(sup), None), ("Margen a banda inferior", margen(inf_), None)],
+        VIOLETA)
+    tarjetas("Tasas e inflación", [
+        ("TAMAR (TNA)", fmt(t, 2, suf="%"), None), ("BADLAR (TNA)", fmt(bd, 2, suf="%"), None),
+        ("CER", fmt(c, 4), c_d), ("Inflación mensual INDEC", fmt(im, 1, suf="%"), None),
+        ("REM 12 meses", fmt(rm, 1, suf="%"), None)], VERDE)
+    tarjetas("Riesgo soberano", [("Riesgo país", fmt(rp, 0, suf=" pb"), rp_d)], ROJO)
+    u365 = lambda s: s[s.index >= s.index[-1] - pd.Timedelta(days=365)] if s is not None and len(s) else s
+    grafico({"A3500": u365(a3500), "Banda superior": u365(b_sup), "Banda inferior": u365(b_inf)},
+            "A3500 y bandas cambiarias ($ por USD)",
+            {"A3500": AZUL, "Banda superior": VIOLETA, "Banda inferior": NARANJA})
+
+# FIN ui.py
