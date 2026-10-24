@@ -6,14 +6,16 @@ from datetime import datetime
 
 import streamlit as st
 
-st.set_page_config(page_title="Letras AR", page_icon="📈", layout="wide",
+st.set_page_config(page_title="Renta Fija Argentina", layout="wide",
                    initial_sidebar_state="collapsed")
 
 from calculos import CER, LECAPS, TZ  # noqa: E402
 from fuentes import (BUSCAR, FALLBACK, bcra_serie, bcra_vars, cargar_flujos, dolares,  # noqa: E402
                      panel, serie_ad, var_id)
-from ui import estilos, ult, vista_macro, vista_resumen  # noqa: E402
-from vistas import vista_bonos, vista_letras  # noqa: E402
+from bonos import vista_bonos  # noqa: E402
+from macro import vista_macro  # noqa: E402
+from ui import cabecera, estilos, ult, vista_resumen  # noqa: E402
+from vistas import vista_letras  # noqa: E402
 
 estilos()
 ESTADO = {}
@@ -22,7 +24,7 @@ ESTADO = {}
 def safe(nombre, fn, *a):
     try:
         r = fn(*a)
-        ESTADO[nombre] = "✅"
+        ESTADO[nombre] = "❌ sin datos" if getattr(r, "empty", False) else "✅"
         return r
     except Exception as e:
         ESTADO[nombre] = f"❌ {type(e).__name__}"
@@ -31,23 +33,24 @@ def safe(nombre, fn, *a):
 
 # ── Barra lateral ────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ Opciones")
+    st.header("Opciones")
     refresco = st.select_slider("Actualizar cada", ["30s", "1m", "2m", "5m"], "1m")
-    if st.button("🔄 Actualizar ahora"):
+    if st.button("Actualizar ahora"):
         st.cache_data.clear()
     st.caption("Los datos de mercado pueden tener demora. Esto no es asesoramiento financiero.")
 
-st.title("📈 Letras & Mercado AR")
+cabecera()
 
 
 @st.fragment(run_every=refresco)
 def tablero():
+    ESTADO.clear()
     ids = {k: None for k in BUSCAR}
     if safe("BCRA · variables", bcra_vars) is not None:
         ids = {k: var_id(k) for k in BUSCAR}
     else:
         ids = {k: FALLBACK.get(k) for k in BUSCAR}
-    a3500 = safe("BCRA · A3500", bcra_serie, ids["a3500"])
+    a3500 = safe("BCRA · A3500", bcra_serie, ids["a3500"], 1100)
     b_sup = safe("BCRA · banda sup.", bcra_serie, ids["banda_sup"])
     b_inf = safe("BCRA · banda inf.", bcra_serie, ids["banda_inf"])
     tamar = safe("BCRA · TAMAR", bcra_serie, ids["tamar"])
@@ -84,19 +87,20 @@ def tablero():
     cers = {**CER, **st.session_state.get("extra_cer", {})}
     flujos = safe("flujos.csv", cargar_flujos) or {}
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🏠 Resumen", "🧾 Letras", "📊 Macro", "🏦 Bonos y ONs"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Resumen", "Letras", "Macro", "Bonos y ONs"])
     with tab1:
         vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
                       im, rm, a3500, b_sup, b_inf)
     with tab2:
         vista_letras(notes, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
     with tab3:
-        vista_macro(riesgo, infl, tamar, badlar, cer)
+        vista_macro(a3500, cer, riesgo, infl, tamar, badlar)
     with tab4:
         vista_bonos(bonos, ons, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
 
     with st.expander("Estado de las fuentes"):
-        st.write("  \n".join(f"{v} {k}" for k, v in ESTADO.items()))
+        for k, v in ESTADO.items():
+            st.write(f"{v.replace('✅', 'OK').replace('⚠️', 'Aviso').replace('❌', 'Error')} · {k}")
     st.caption(f"Última actualización: {datetime.now(TZ):%d/%m/%Y %H:%M:%S} (hora Argentina)")
 
 
