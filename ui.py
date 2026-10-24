@@ -1,13 +1,17 @@
-"""Piezas de interfaz: estilos, formatos, gráficos y las pestañas Resumen y Macro."""
+"""Estilo formal, tarjetas, formatos, gráficos base y la pestaña Resumen."""
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+AZUL, NARANJA, VERDE, VIOLETA, ROJO, TURQUESA = (
+    "#2F80ED", "#F2994A", "#27AE60", "#9B51E0", "#EB5757", "#00A3A3")
+PAL = [AZUL, NARANJA, VERDE, VIOLETA, ROJO, TURQUESA]
+
 PCT = lambda t="": st.column_config.NumberColumn(format="%.2f%%", help=t)
-CFG = {"Precio": st.column_config.NumberColumn(format="%.2f"),
-       "Compra": st.column_config.NumberColumn(format="%.2f"),
-       "Venta": st.column_config.NumberColumn(format="%.2f"),
+NUM2 = lambda t="": st.column_config.NumberColumn(format="%.2f", help=t)
+CFG = {"Precio": NUM2(), "Compra": NUM2(), "Venta": NUM2(),
        "Días": st.column_config.NumberColumn(format="%d"),
+       "Duration": NUM2("Duration de Macaulay, en años."),
        "Var. diaria %": PCT(),
        "TIR Rava %": PCT("TIR que publica Rava con su cotización (para contrastar)."),
        "TNA %": PCT("Rendimiento simple anualizado (sin capitalizar)."),
@@ -15,16 +19,38 @@ CFG = {"Precio": st.column_config.NumberColumn(format="%.2f"),
        "TEM %": PCT("En letras en pesos = devaluación mensual de equilibrio."),
        "TC breakeven": st.column_config.NumberColumn(format="$ %.0f", help="A3500 × (1 + rend. directo)")}
 
+CSS = """<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap');
+html,body,.stApp,.stApp p,.stApp label,.stApp li,.stApp button p,.stApp input,.stApp textarea{
+ font-family:'IBM Plex Sans',-apple-system,'Segoe UI',sans-serif!important}
+.block-container{padding-top:1.4rem;padding-bottom:2.5rem;max-width:1280px}
+.cab{border-bottom:2px solid rgba(127,127,127,.35);padding-bottom:.7rem;margin-bottom:.9rem}
+.cab-t{font-family:'IBM Plex Serif',Georgia,serif;font-size:2rem;font-weight:600;letter-spacing:-.01em;line-height:1.15}
+.cab-s{font-size:.9rem;opacity:.7;margin-top:.25rem}
+.sec{font-size:.76rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+ margin:1.1rem 0 .5rem;padding-bottom:.25rem;border-bottom:2px solid var(--ac,#888)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:.6rem}
+.card{border:1px solid rgba(127,127,127,.30);border-left:5px solid var(--ac);border-radius:6px;
+ padding:.55rem .8rem;background:rgba(127,127,127,.07);
+ background:linear-gradient(135deg,color-mix(in srgb,var(--ac) 15%,transparent),rgba(127,127,127,.05))}
+.card .l{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;opacity:.75}
+.card .v{font-size:1.4rem;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.35}
+.card .d{font-size:.78rem;font-weight:500}
+.up{color:#27AE60}.down{color:#EB5757}
+.stTabs [data-baseweb="tab"]{font-weight:500;outline:none!important;box-shadow:none!important}
+@media (max-width:640px){.cab-t{font-size:1.45rem}.card .v{font-size:1.2rem}
+ .block-container{padding-left:.7rem;padding-right:.7rem}}
+</style>"""
+
 
 def estilos():
-    st.markdown("""<style>
-.block-container{padding-top:1.2rem;padding-bottom:2rem}
-@media (max-width:640px){
- .block-container{padding-left:.6rem;padding-right:.6rem}
- [data-testid="stHorizontalBlock"]{flex-direction:row!important;flex-wrap:wrap;gap:.4rem}
- [data-testid="stColumn"],[data-testid="column"]{min-width:calc(50% - .4rem)!important;flex:1 1 calc(50% - .4rem)!important}
- [data-testid="stMetricValue"]{font-size:1.25rem}
-}</style>""", unsafe_allow_html=True)
+    st.markdown(CSS, unsafe_allow_html=True)
+
+
+def cabecera():
+    st.markdown('<div class="cab"><div class="cab-t">Tablero de Renta Fija Argentina</div>'
+                '<div class="cab-s">Letras del Tesoro, bonos soberanos y obligaciones negociables · '
+                'tipo de cambio, tasas e inflación</div></div>', unsafe_allow_html=True)
 
 
 def fmt(x, dec=2, pre="", suf=""):
@@ -42,44 +68,55 @@ def ult(s):
     return v, d
 
 
-def metricas(items, n=4):
-    for i in range(0, len(items), n):
-        for col, (lab, val, dlt) in zip(st.columns(n), items[i:i + n]):
-            col.metric(lab, val, dlt)
+def tarjetas(titulo, items, color):
+    """Grilla de tarjetas (etiqueta, valor, variación numérica o None) con color de acento."""
+    h = [f'<div class="sec" style="--ac:{color}">{titulo}</div><div class="grid">']
+    for lab, val, dlt in items:
+        d = ""
+        if dlt is not None and not pd.isna(dlt):
+            cls, flecha = ("up", "▲") if dlt >= 0 else ("down", "▼")
+            d = f'<div class="d {cls}">{flecha} {fmt(abs(dlt), 2, suf="%")}</div>'
+        h.append(f'<div class="card" style="--ac:{color}"><div class="l">{lab}</div>'
+                 f'<div class="v">{val}</div>{d}</div>')
+    st.markdown("".join(h) + "</div>", unsafe_allow_html=True)
 
 
-def grafico(series, titulo, h=340, barras=False):
+def grafico(series, titulo, colores=None, h=320, barras=False, y=None):
     fig = go.Figure()
-    for nombre, s in series.items():
-        if s is not None and len(s):
-            (fig.add_bar if barras else fig.add_scatter)(x=s.index, y=s.values, name=nombre,
-                                                         **({} if barras else {"mode": "lines"}))
-    fig.update_layout(title=titulo, height=h, margin=dict(l=8, r=8, t=40, b=8),
-                      legend=dict(orientation="h", y=-0.2), hovermode="x unified")
-    st.plotly_chart(fig)
+    for i, (nombre, s) in enumerate(series.items()):
+        if s is None or len(s) == 0:
+            continue
+        col = (colores or {}).get(nombre, PAL[i % len(PAL)])
+        if barras:
+            fig.add_bar(x=s.index, y=s.values, name=nombre, marker_color=col)
+        else:
+            fig.add_scatter(x=s.index, y=s.values, name=nombre, mode="lines",
+                            line=dict(color=col, width=2.2))
+    fig.update_layout(title=dict(text=titulo, font=dict(size=15)), height=h, yaxis_title=y,
+                      margin=dict(l=8, r=8, t=44, b=8), hovermode="x unified",
+                      legend=dict(orientation="h", y=-0.18))
+    st.plotly_chart(fig, key=titulo)
 
 
 def vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
                   im, rm, a3500, b_sup, b_inf):
-    metricas([("A3500 mayorista", fmt(tc, 2, "$ "), fmt(tc_d, 2, suf="%") if tc_d else None),
-              ("Oficial (venta)", fmt(ofi, 2, "$ "), None), ("MEP", fmt(mep, 2, "$ "), None),
-              ("CCL", fmt(ccl, 2, "$ "), None), ("Blue", fmt(blue, 2, "$ "), None),
-              ("Brecha CCL/oficial", fmt(brecha, 1, suf="%"), None),
-              ("Banda superior", fmt(sup, 2, "$ "), None), ("Banda inferior", fmt(inf_, 2, "$ "), None),
-              ("Riesgo país", fmt(rp, 0, suf=" pb"), fmt(rp_d, 2, suf="%") if rp_d else None),
-              ("TAMAR (TNA)", fmt(t, 2, suf="%"), None), ("BADLAR (TNA)", fmt(bd, 2, suf="%"), None),
-              ("CER", fmt(c, 4), fmt(c_d, 2, suf="%") if c_d else None),
-              ("Inflación mensual (INDEC)", fmt(im, 1, suf="%"), None),
-              ("REM 12m (inflación esperada)", fmt(rm, 1, suf="%"), None)])
-    grafico({"A3500": a3500, "Banda sup.": b_sup, "Banda inf.": b_inf},
-            "A3500 vs bandas cambiarias ($ por USD)")
-
-
-def vista_macro(riesgo, infl, tamar, badlar, cer):
-    grafico({"Riesgo país (pb)": riesgo.tail(365) if riesgo is not None else None}, "Riesgo país")
-    grafico({"Inflación mensual %": infl.tail(24) if infl is not None else None},
-            "Inflación mensual (INDEC)", barras=True)
-    grafico({"TAMAR": tamar, "BADLAR": badlar}, "Tasas en pesos (TNA %)")
-    grafico({"CER": cer}, "CER")
+    margen = lambda b: fmt((b / tc - 1) * 100, 1, suf="%") if b and tc else "s/d"
+    tarjetas("Tipo de cambio", [
+        ("A3500 mayorista", fmt(tc, 2, "$ "), tc_d), ("Oficial (venta)", fmt(ofi, 2, "$ "), None),
+        ("MEP", fmt(mep, 2, "$ "), None), ("CCL", fmt(ccl, 2, "$ "), None),
+        ("Blue", fmt(blue, 2, "$ "), None), ("Brecha CCL / oficial", fmt(brecha, 1, suf="%"), None)], AZUL)
+    tarjetas("Bandas cambiarias", [
+        ("Banda superior", fmt(sup, 2, "$ "), None), ("Banda inferior", fmt(inf_, 2, "$ "), None),
+        ("Margen a banda superior", margen(sup), None), ("Margen a banda inferior", margen(inf_), None)],
+        VIOLETA)
+    tarjetas("Tasas e inflación", [
+        ("TAMAR (TNA)", fmt(t, 2, suf="%"), None), ("BADLAR (TNA)", fmt(bd, 2, suf="%"), None),
+        ("CER", fmt(c, 4), c_d), ("Inflación mensual INDEC", fmt(im, 1, suf="%"), None),
+        ("REM 12 meses", fmt(rm, 1, suf="%"), None)], VERDE)
+    tarjetas("Riesgo soberano", [("Riesgo país", fmt(rp, 0, suf=" pb"), rp_d)], ROJO)
+    u365 = lambda s: s[s.index >= s.index[-1] - pd.Timedelta(days=365)] if s is not None and len(s) else s
+    grafico({"A3500": u365(a3500), "Banda superior": u365(b_sup), "Banda inferior": u365(b_inf)},
+            "A3500 y bandas cambiarias ($ por USD)",
+            {"A3500": AZUL, "Banda superior": VIOLETA, "Banda inferior": NARANJA})
 
 # FIN ui.py
