@@ -303,18 +303,27 @@ def _store():
 
 
 def _rava_pagina(base, store):
+    """(datos, estado). Estados: ok | sin_flujo (Rava no lo publica) | error (red/bloqueo: se reintenta en 2 min)."""
     hit = store.get(base)
-    if hit and time.time() - hit[0] < (6 * 3600 if hit[1] else 3600):
-        return hit[1]
-    datos = None
-    try:
-        r = requests.get(f"https://www.rava.com/perfil/{base}", headers=H, timeout=12)
+    if hit and time.time() - hit[0] < hit[2]:
+        return hit[1], hit[3]
+    datos, estado, ttl = None, "error", 120
+    for _ in range(2):
+        try:
+            r = requests.get(f"https://www.rava.com/perfil/{base}", headers=H, timeout=12)
+        except Exception:
+            time.sleep(0.7)
+            continue
         if r.status_code == 200:
             datos = parse_rava(r.text, base)
-    except Exception:
-        pass
-    store[base] = (time.time(), datos)
-    return datos
+            estado, ttl = ("ok", 6 * 3600) if datos else ("sin_flujo", 3600)
+            break
+        if r.status_code == 404:
+            estado, ttl = "sin_flujo", 6 * 3600
+            break
+        time.sleep(0.7)  # 403/429/5xx: reintenta una vez
+    store[base] = (time.time(), datos, ttl, estado)
+    return datos, estado
 
 
 def candidatos(tk):
@@ -324,272 +333,5 @@ def candidatos(tk):
     return [tk]
 
 
-def traer_rava(tickers, etiqueta):
-    store, res = _store(), {}
-    pend = {tk: candidatos(tk) for tk in tickers}
-    for _ in range(2):
-        need = sorted({c[0] for c in pend.values() if c})
-        if not need:
-            break
-        with ThreadPoolExecutor(6) as ex:
-            datos = dict(zip(need, ex.map(lambda b: _rava_pagina(b, store), need)))
-        for tk, c in list(pend.items()):
-            if datos.get(c[0]):
-                res[tk] = datos[c[0]]
-                pend.pop(tk)
-            else:
-                c.pop(0)
-                if not c:
-                    pend.pop(tk)
-    if tickers:
-        ESTADO[f"Rava · flujos {etiqueta} ({len(res)} de {len(tickers)} con datos)"] = "✅" if res else "❌"
-    return res
-
-
-def calcular(df, tc, cer_s, lecaps, cers, flujos, rava=None, fx=None):
-    """Agrega Tipo, Vencimiento, TNA y TIR a cada título según cómo se pueda valuar."""
-    filas, rava, fx = [], rava or {}, fx or {}
-    for _, r in df.iterrows():
-        tk = str(r["symbol"])
-        tipo, vto = info_ticker(tk, cers)
-        if vto and vto <= HOY:
-            continue
-        p = precio_de(r)
-        f = {"Ticker": tk, "Tipo": tipo or "Bono / otro", "Vencimiento": vto.isoformat() if vto else "—",
-             "Días": (vto - HOY).days if vto else None, "Precio": p, "Var. diaria %": r.get("pct_change"),
-             "Tasa en": "—", "Compra": r.get("px_bid"), "Venta": r.get("px_ask"), "Volumen": r.get("v")}
-        fl, pc = None, p
-        if p and tk in lecaps and vto:                      # LECAP / BONCAP: pago fijo en pesos
-            pc = p * 100 if p < 5 else p
-            fl, f["Tasa en"] = [(vto, monto_vto(*lecaps[tk], vto))], "Pesos"
-        elif p and tipo == "Dólar-linked" and vto and tc:   # paga 100 USD: precio en USD = precio / A3500
-            pc = p / tc
-            if 50 < pc < 150 and f["Días"] >= 15:
-                fl, f["Tasa en"] = [(vto, 100.0)], "USD"
-        elif p and tk in cers and vto and cer_s is not None and len(cer_s):  # CER constante hasta vto
-            c0, c1 = cer_en(cer_s, hab(date.fromisoformat(cers[tk][0]), -10)), cer_en(cer_s, hab(HOY, -10))
-            if c0 and c1 and f["Días"] >= 15:
-                fl, f["Tasa en"] = [(vto, 100 * c1 / c0)], "Real (CER constante)"
-        elif p and tk in flujos:
-            fl, f["Tasa en"] = flujos[tk], "Según flujos"
-        elif p and tk in rava:                              # flujo de fondos de Rava + precio en vivo
-            rv, usd_row = rava[tk], rava[tk]["base"] != tk
-            f["TIR Rava %"] = rv["tir"]
-            ult_f = max(d for d, _ in rv["flujos"])
-            f["Vencimiento"], f["Días"] = ult_f.isoformat(), (ult_f - HOY).days
-            if rv["pesos"]:                                 # flujos en pesos (CER, tasa fija, dólar-linked)
-                pc, tasa = (None if usd_row else p), ("Real (CER constante)" if rv["cer"] else "Pesos")
-            elif usd_row:                                   # ticker D/C: precio ya está en USD
-                pc, tasa = p, "USD"
-            else:                                           # ticker en pesos de un bono en USD
-                fxv = fx.get("CCL") if tk.startswith("GD") else fx.get("MEP")
-                pc, tasa = (p / fxv if fxv else None), "USD (÷ MEP/CCL)"
-            if pc and 0.15 < pc / sum(m for _, m in rv["flujos"]) < 2.5:   # descarta monedas mezcladas
-                fl, f["Tasa en"] = rv["flujos"], tasa
-        if fl:
-            tna, tir, _ = rendimiento(pc, fl)
-            if tir is not None:
-                f["TNA %"], f["TIR %"] = tna * 100, tir * 100
-                if f["Tasa en"] == "Pesos":
-                    rend = fl[0][1] / pc - 1
-                    f["TEM %"] = ((1 + rend) ** (30 / f["Días"]) - 1) * 100
-                    f["TC breakeven"] = tc * (1 + rend) if tc else None
-        filas.append(f)
-    out = pd.DataFrame(filas)
-    for c in ("TNA %", "TIR %", "TIR Rava %", "TEM %", "TC breakeven"):
-        if c not in out:
-            out[c] = None
-    return out.reindex(columns=ORDEN)
-
-
-# ── Barra lateral ────────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("⚙️ Opciones")
-    refresco = st.select_slider("Actualizar cada", ["30s", "1m", "2m", "5m"], "1m")
-    if st.button("🔄 Actualizar ahora"):
-        st.cache_data.clear()
-    st.caption("Los datos de mercado pueden tener demora. Esto no es asesoramiento financiero.")
-
-st.title("📈 Letras & Mercado AR")
-
-
-@st.fragment(run_every=refresco)
-def tablero():
-    ids = {k: None for k in BUSCAR}
-    if safe("BCRA · variables", bcra_vars) is not None:
-        ids = {k: var_id(k) for k in BUSCAR}
-    else:
-        ids = {k: FALLBACK.get(k) for k in BUSCAR}
-    a3500 = safe("BCRA · A3500", bcra_serie, ids["a3500"])
-    b_sup = safe("BCRA · banda sup.", bcra_serie, ids["banda_sup"])
-    b_inf = safe("BCRA · banda inf.", bcra_serie, ids["banda_inf"])
-    tamar = safe("BCRA · TAMAR", bcra_serie, ids["tamar"])
-    badlar = safe("BCRA · BADLAR", bcra_serie, ids["badlar"])
-    cer = safe("BCRA · CER", bcra_serie, ids["cer"], 1100)
-    rem = safe("BCRA · REM", bcra_serie, ids["rem"])
-    dol = safe("dolarapi", dolares)
-    riesgo = safe("argentinadatos · riesgo país", serie_ad, "riesgo-pais")
-    infl = safe("argentinadatos · inflación", serie_ad, "inflacion")
-    notes = safe("data912 · letras", panel, "arg_notes")
-    bonos = safe("data912 · bonos", panel, "arg_bonds")
-    ons = safe("data912 · ONs", panel, "arg_corp")
-
-    def dv(casa):
-        try:
-            return float(dol.loc[casa, "venta"])
-        except Exception:
-            return None
-
-    tc, tc_d = ult(a3500)
-    tc = tc or dv("mayorista")  # respaldo si falla el BCRA
-    ofi, mep, ccl, blue = dv("oficial"), dv("bolsa"), dv("contadoconliqui"), dv("blue")
-    brecha = (ccl / ofi - 1) * 100 if ccl and ofi else None
-    rp, rp_d = ult(riesgo)
-    t, _ = ult(tamar)
-    bd, _ = ult(badlar)
-    c, c_d = ult(cer)
-    im = infl.iloc[-1] if infl is not None and len(infl) else None
-    rm, _ = ult(rem)
-    sup, _ = ult(b_sup)
-    inf_, _ = ult(b_inf)
-
-    lecaps = {**LECAPS, **st.session_state.get("extra", {})}
-    cers = {**CER, **st.session_state.get("extra_cer", {})}
-    flujos = safe("flujos.csv", cargar_flujos) or {}
-
-    tab1, tab2, tab3, tab4 = st.tabs(["🏠 Resumen", "🧾 Letras", "📊 Macro", "🏦 Bonos y ONs"])
-
-    with tab1:
-        metricas([("A3500 mayorista", fmt(tc, 2, "$ "), fmt(tc_d, 2, suf="%") if tc_d else None),
-                  ("Oficial (venta)", fmt(ofi, 2, "$ "), None), ("MEP", fmt(mep, 2, "$ "), None),
-                  ("CCL", fmt(ccl, 2, "$ "), None), ("Blue", fmt(blue, 2, "$ "), None),
-                  ("Brecha CCL/oficial", fmt(brecha, 1, suf="%"), None),
-                  ("Banda superior", fmt(sup, 2, "$ "), None), ("Banda inferior", fmt(inf_, 2, "$ "), None),
-                  ("Riesgo país", fmt(rp, 0, suf=" pb"), fmt(rp_d, 2, suf="%") if rp_d else None),
-                  ("TAMAR (TNA)", fmt(t, 2, suf="%"), None), ("BADLAR (TNA)", fmt(bd, 2, suf="%"), None),
-                  ("CER", fmt(c, 4), fmt(c_d, 2, suf="%") if c_d else None),
-                  ("Inflación mensual (INDEC)", fmt(im, 1, suf="%"), None),
-                  ("REM 12m (inflación esperada)", fmt(rm, 1, suf="%"), None)])
-        grafico({"A3500": a3500, "Banda sup.": b_sup, "Banda inf.": b_inf},
-                "A3500 vs bandas cambiarias ($ por USD)")
-
-    with tab2:
-        if notes is None or notes.empty:
-            st.warning("No se pudo leer la cotización de letras (data912).")
-        else:
-            otros = [x for x in notes["symbol"] if info_ticker(x, cers)[0] is None and x not in flujos]
-            rv_l = traer_rava(otros, "letras")
-            df = calcular(notes, tc, cer, lecaps, cers, flujos, rv_l, {"MEP": mep, "CCL": ccl})
-            falta = [t for t, ti in zip(df["Ticker"], df["Tipo"])
-                     if (ti in ("LECAP", "BONCAP") and t not in lecaps) or (ti == "CER" and t not in cers)]
-            if falta:
-                st.warning(f"Letras detectadas sin datos de emisión: {', '.join(falta)}. "
-                           "Cargalas en la calculadora de abajo.")
-            c = df.dropna(subset=["TIR %"]).sort_values("Días")
-            fig = go.Figure()
-            for tasa, g in c.groupby("Tasa en"):
-                fig.add_scatter(x=g["Días"], y=g["TIR %"], mode="lines+markers+text", text=g["Ticker"],
-                                textposition="top center", name=tasa)
-            fig.update_layout(title="TIR vs días al vencimiento (cada curva en su moneda)", height=380,
-                              xaxis_title="Días", yaxis_title="TIR %", legend=dict(orientation="h", y=-0.25),
-                              margin=dict(l=8, r=8, t=40, b=8))
-            st.plotly_chart(fig)
-            st.dataframe(df.sort_values(["Tipo", "Días"]).round(2), hide_index=True,
-                         column_config=CFG, column_order=ORDEN)
-            st.caption("TNA = rendimiento simple anualizado. TIR = tasa efectiva anual. "
-                       "Pesos: LECAP/BONCAP al pago fijo. USD: dólar-linked con precio ÷ A3500 de hoy. "
-                       "Real: letras CER suponiendo el CER de hoy constante hasta el vencimiento. "
-                       "En las D y CER no se calcula la tasa con menos de 15 días: el A3500 es de cierre y el "
-                       "precio es de ahora, y el resultado es ruido.")
-
-            with st.expander("➕ Calculadora: agregar una letra nueva"):
-                st.caption("LECAP/BONCAP: fecha de emisión y 'capitaliza a una TEM de X%' (comunicado de "
-                           "licitación). CER: solo fecha de emisión (el CER sale del BCRA). Queda cargada "
-                           "hasta que se reinicie la app; para dejarla fija pegá la línea en LECAPS o CER.")
-                if "ultima" in st.session_state:
-                    st.success(st.session_state["ultima"][0])
-                    st.code(st.session_state["ultima"][1], language="python")
-                with st.form("nueva_letra"):
-                    tk = st.text_input("Ticker", value=falta[0] if falta else "", placeholder="S13N6").upper().strip()
-                    emi = st.date_input("Fecha de emisión", value=HOY)
-                    tem = st.number_input("TEM de capitalización % (solo LECAP/BONCAP)", 0.0, 20.0, 2.0, 0.01)
-                    vtxt = st.text_input("Vencimiento AAAA-MM-DD (solo si el ticker no lo trae, ej. TZX…)")
-                    ok = st.form_submit_button("Agregar")
-                if ok:
-                    tipo, vto = info_ticker(tk, cers)
-                    if vtxt.strip():
-                        try:
-                            vto = date.fromisoformat(vtxt.strip())
-                        except ValueError:
-                            vto = None
-                    if tipo in ("LECAP", "BONCAP") and vto:
-                        st.session_state.setdefault("extra", {})[tk] = (emi.isoformat(), tem / 100)
-                        msg = f"{tk} agregada: vence {vto:%d/%m/%Y}, paga {monto_vto(emi.isoformat(), tem / 100, vto):.4f} cada 100 VN."
-                        linea = f'"{tk}": ("{emi.isoformat()}", {tem / 100:.4f}),'
-                    elif tipo == "CER" and vto:
-                        st.session_state.setdefault("extra_cer", {})[tk] = (emi.isoformat(), vto.isoformat())
-                        msg = f"{tk} agregada (CER): vence {vto:%d/%m/%Y}."
-                        linea = f'"{tk}": ("{emi.isoformat()}", "{vto.isoformat()}"),'
-                    else:
-                        msg = None
-                        st.error("No pude identificar la letra o su vencimiento. Formato: S30N6, T15E7, X29E7 "
-                                 "(o completá el vencimiento).")
-                    if msg:
-                        st.session_state["ultima"] = (msg, linea)
-                        st.rerun()
-
-            with st.expander("🧮 Calculadora de TNA / TIR para cualquier instrumento"):
-                st.caption("Para bonos u ONs con cupones: precio y flujos por el mismo VN y en la misma moneda "
-                           "(usar punto decimal). Los precios del mercado local suelen ser sucios (con intereses).")
-                pr = st.number_input("Precio", 0.0, 1e9, 100.0, 0.01, key="cp")
-                txt = st.text_area("Flujos: una línea por pago, 'AAAA-MM-DD; monto'", "2027-03-31; 100", key="cf")
-                if st.button("Calcular", key="cb"):
-                    try:
-                        fl = []
-                        for ln in filter(None, (x.strip() for x in txt.splitlines())):
-                            a_, b_ = re.split(r"[;,\t ]+", ln)[:2]
-                            fl.append((date.fromisoformat(a_), float(b_)))
-                        tna, tir, dur = rendimiento(pr, fl)
-                        if tir is None:
-                            st.error("No se pudo calcular (revisá fechas futuras y montos).")
-                        else:
-                            metricas([("TNA", fmt(tna * 100, 2, suf="%"), None), ("TIR", fmt(tir * 100, 2, suf="%"), None),
-                                      ("Duration (años)", fmt(dur, 2), None)], 3)
-                    except Exception:
-                        st.error("Formato inválido. Ejemplo de línea: 2027-03-31; 100")
-
-    with tab3:
-        grafico({"Riesgo país (pb)": riesgo.tail(365) if riesgo is not None else None}, "Riesgo país")
-        grafico({"Inflación mensual %": infl.tail(24) if infl is not None else None},
-                "Inflación mensual (INDEC)", barras=True)
-        grafico({"TAMAR": tamar, "BADLAR": badlar}, "Tasas en pesos (TNA %)")
-        grafico({"CER": cer}, "CER")
-
-    with tab4:
-        for nombre, d in (("Bonos soberanos", bonos), ("Obligaciones negociables", ons)):
-            st.subheader(nombre)
-            if d is None or d.empty:
-                st.warning("Sin datos.")
-                continue
-            q = st.text_input(f"Filtrar {nombre.lower()}", key=nombre, placeholder="ej: AL30, GD30, YMC")
-            if q:
-                d = d[d["symbol"].str.contains(q.strip(), case=False, na=False)]
-            top = d.sort_values("v", ascending=False).head(40)["symbol"].tolist() if "v" in d else []
-            with st.spinner("Leyendo flujos de fondos…"):
-                rv_b = traer_rava(top, nombre.split()[0].lower())
-            t = calcular(d, tc, cer, lecaps, cers, flujos, rv_b, {"MEP": mep, "CCL": ccl})
-            st.dataframe(t, hide_index=True, column_config=CFG, column_order=ORDEN)
-            if len(d) > 40:
-                st.caption(f"Tasas calculadas para los 40 títulos con más volumen de {len(d)}. "
-                           "Filtrá por ticker para ver el resto.")
-        st.caption("TNA y TIR salen del flujo de fondos publicado por Rava (por cada 100 nominales) y del precio en "
-                   "vivo. Si Rava no tiene el título o el dato no cierra, queda sin tasa. 'TIR Rava %' es la que "
-                   "publica Rava, para contrastar. Bonos en USD: filas D/C con su precio en USD; filas en pesos "
-                   "convertidas a MEP (a CCL los GD). CER: real, con el CER de hoy constante.")
-
-    with st.expander("Estado de las fuentes"):
-        st.write("  \n".join(f"{v} {k}" for k, v in ESTADO.items()))
-    st.caption(f"Última actualización: {datetime.now(TZ):%d/%m/%Y %H:%M:%S} (hora Argentina)")
-
-
-tablero()
+def limitar(tickers, max_paginas=80):
+    """Corta por páginas
