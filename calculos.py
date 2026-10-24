@@ -102,7 +102,7 @@ def precio_de(r):
 
 
 ORDEN = ["Ticker", "Tipo", "Vencimiento", "Días", "Precio", "Var. diaria %", "TNA %", "TIR %", "TIR Rava %",
-         "Tasa en", "TEM %", "TC breakeven", "Compra", "Venta", "Volumen"]
+         "Duration", "Tasa en", "TEM %", "TC breakeven", "Compra", "Venta", "Volumen"]
 
 
 def calcular(df, tc, cer_s, lecaps, cers, flujos, rava=None, fx=None):
@@ -146,16 +146,16 @@ def calcular(df, tc, cer_s, lecaps, cers, flujos, rava=None, fx=None):
             if pc and 0.15 < pc / sum(m for _, m in rv["flujos"]) < 2.5:   # descarta monedas mezcladas
                 fl, f["Tasa en"] = rv["flujos"], tasa
         if fl:
-            tna, tir, _ = rendimiento(pc, fl)
+            tna, tir, dur = rendimiento(pc, fl)
             if tir is not None:
-                f["TNA %"], f["TIR %"] = tna * 100, tir * 100
+                f["TNA %"], f["TIR %"], f["Duration"] = tna * 100, tir * 100, dur
                 if f["Tasa en"] == "Pesos":
                     rend = fl[0][1] / pc - 1
                     f["TEM %"] = ((1 + rend) ** (30 / f["Días"]) - 1) * 100
                     f["TC breakeven"] = tc * (1 + rend) if tc else None
         filas.append(f)
     out = pd.DataFrame(filas)
-    for c in ("TNA %", "TIR %", "TIR Rava %", "TEM %", "TC breakeven"):
+    for c in ("TNA %", "TIR %", "TIR Rava %", "Duration", "TEM %", "TC breakeven"):
         if c not in out:
             out[c] = None
     return out.reindex(columns=ORDEN)
