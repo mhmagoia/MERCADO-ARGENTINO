@@ -13,6 +13,7 @@ from calculos import CER, LECAPS, TZ  # noqa: E402
 from fuentes import (BUSCAR, FALLBACK, bcra_serie, bcra_vars, cargar_flujos, dolares,  # noqa: E402
                      panel, serie_ad, var_id)
 from bonos import vista_bonos  # noqa: E402
+from granos_vista import vista_granos  # noqa: E402
 from macro import vista_macro  # noqa: E402
 from ui import cabecera, estilos, ult, vista_resumen  # noqa: E402
 from vistas import vista_letras  # noqa: E402
@@ -87,7 +88,7 @@ def tablero():
     cers = {**CER, **st.session_state.get("extra_cer", {})}
     flujos = safe("flujos.csv", cargar_flujos) or {}
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Resumen", "Letras", "Macro", "Bonos y ONs"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Resumen", "Letras", "Macro", "Bonos y ONs", "Granos y futuros"])
     with tab1:
         vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
                       im, rm, a3500, b_sup, b_inf)
@@ -97,6 +98,8 @@ def tablero():
         vista_macro(a3500, cer, riesgo, infl, tamar, badlar)
     with tab4:
         vista_bonos(bonos, ons, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
+    with tab5:
+        vista_granos(notes, tc, cer, lecaps, cers, flujos, safe)
 
     with st.expander("Estado de las fuentes"):
         for k, v in ESTADO.items():
