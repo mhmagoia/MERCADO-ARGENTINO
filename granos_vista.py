@@ -12,16 +12,28 @@ NUM2 = st.column_config.NumberColumn(format="%.2f")
 PCT = st.column_config.NumberColumn(format="%.2f%%")
 
 
-def _estilo(df):
-    """Tabla con la diferencia % en verde (futuro paga más) o rojo (conviene disponible + letra)."""
-    dif = [c for c in df.columns if c.endswith("dif. %")]
+def _estilo(df, formato):
+    """Tabla con las diferencias en verde (el futuro paga más) o rojo (conviene disponible + letra)."""
+    dif = [c for c in df.columns if c.endswith("dif. %") or c.endswith("dif. $")]
     color = lambda x: ("" if pd.isna(x) else "background-color: rgba(39,174,96,.30)" if x > 0
                        else "background-color: rgba(235,87,87,.30)" if x < 0 else "")
     s = df.style
     s = (s.map if hasattr(s, "map") else s.applymap)(color, subset=dif)
-    fm = {c: ("{:+.2f}%" if c in dif else "{:.2f}%" if c.endswith("%") else "{:.1f}")
-          for c in df.columns if c not in ("Mes", "Letra ref.")}
-    return s.format(fm, na_rep="—")
+    return s.format(formato, na_rep="—")
+
+
+def _resumen(res, cols, extra):
+    """Une por mes las columnas elegidas de cada cultivo (cols = {columna: sufijo}) más datos comunes del mes."""
+    out, info = None, []
+    for n, d in res.items():
+        if "Dif. %" in d:
+            info.append(d[["Mes"] + extra])
+            x = d[["Mes"] + list(cols)].rename(columns={c: f"{n} {s}" for c, s in cols.items()})
+            out = x if out is None else out.merge(x, on="Mes", how="outer")
+    if out is None:
+        return None
+    out = out.merge(pd.concat(info).drop_duplicates("Mes"), on="Mes", how="left")
+    return out[["Mes"] + extra + [c for c in out.columns if c not in ["Mes"] + extra]].sort_values("Mes")
 
 
 def _sec(t, color):
@@ -82,20 +94,22 @@ def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
         tarjetas("Mejor oportunidad por cultivo: precio futuro vs. disponible + letra (USD/tn)", mejores, VERDE)
 
     _sec("Comparación rápida por mes (verde: conviene el futuro · rojo: conviene disponible + letra)", VERDE)
-    resumen, info = None, []
-    for n, d in res.items():
-        if "Dif. %" in d:
-            info.append(d[["Mes", "Letra ref.", "TNA letra %"]])
-            x = d[["Mes", "Futuro (USD/tn)", "Equivalente neto (USD/tn)", "Dif. %"]].rename(
-                columns={"Futuro (USD/tn)": f"{n} futuro", "Equivalente neto (USD/tn)": f"{n} equiv.", "Dif. %": f"{n} dif. %"})
-            resumen = x if resumen is None else resumen.merge(x, on="Mes", how="outer")
-    if resumen is not None:  # la letra de referencia de cada mes, tomada de cualquier cultivo
-        resumen = resumen.merge(pd.concat(info).drop_duplicates("Mes"), on="Mes", how="left")
-        resumen = resumen[["Mes", "Letra ref.", "TNA letra %"] + [c for c in resumen.columns if c not in ("Mes", "Letra ref.", "TNA letra %")]]
-    if resumen is not None:
-        st.dataframe(_estilo(resumen.sort_values("Mes")), hide_index=True)
-    else:
+    usd = _resumen(res, {"Futuro (USD/tn)": "futuro", "Equivalente neto (USD/tn)": "equiv.", "Dif. %": "dif. %"},
+                   ["Letra ref.", "TNA letra %"])
+    if usd is None:
         st.warning("No hay letras en pesos con tasa para comparar (revisá la pestaña Letras).")
+    else:
+        st.dataframe(_estilo(usd, {c: ("{:+.2f}%" if c.endswith("dif. %") else "{:.2f}%" if c.endswith("%") else "{:.1f}")
+                                   for c in usd.columns if c not in ("Mes", "Letra ref.")}), hide_index=True)
+        _sec("Comparación rápida por mes en pesos ($ por tonelada)", VIOLETA)
+        pes = _resumen(res, {"Futuro en $/tn": "futuro $", "Equivalente neto ($/tn)": "equiv. $", "Dif. ($/tn)": "dif. $"},
+                       ["Letra ref.", "TNA letra %", "Dólar fut. ($)"])
+        num, sg = (lambda x: fmt(x, 0)), (lambda x: ("+" if x > 0 else "") + fmt(x, 0))
+        st.dataframe(_estilo(pes, {c: (sg if c.endswith("dif. $") else "{:.2f}%" if c == "TNA letra %" else num)
+                                   for c in pes.columns if c not in ("Mes", "Letra ref.")}), hide_index=True)
+        st.caption("Es la misma comparación en pesos: el porcentaje de diferencia es idéntico al de dólares, porque ambos "
+                   "lados se convierten con el mismo dólar futuro. Futuro $ = precio en USD × dólar futuro. Equivalente $ = "
+                   "disponible llevado a vencimiento con la letra, menos la comisión si la hay.")
 
     _sec("Detalle por cultivo", AZUL)
     sel = st.radio("Cultivo", list(CULTIVOS), horizontal=True, key="cultivo")
