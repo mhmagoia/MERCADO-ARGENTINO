@@ -19,7 +19,7 @@ def fin_habil(y, m):
     return d
 
 
-def proximos_meses(n=9):
+def proximos_meses(n=14):
     h, out, y, m = hoy(), [], hoy().year, hoy().month
     while len(out) < n:
         if fin_habil(y, m) > h:
@@ -28,15 +28,15 @@ def proximos_meses(n=9):
     return out
 
 
-def tabla_base(dlr_rava):
-    csv, filas = cargar_futuros_csv(), []
+def tabla_base(auto):
+    """Tabla editable: ajustes de A3 (automáticos) y, donde falten, lo cargado en futuros.csv."""
+    csv, filas, nan = cargar_futuros_csv(), [], float("nan")
     for y, m in proximos_meses():
         mes = f"{y}-{m:02d}"
-        f = {"Mes": mes, COLS["dlr"]: dlr_rava.get((y, m), float("nan")), COLS["soja"]: float("nan"),
-             COLS["maiz"]: float("nan"), COLS["trigo"]: float("nan")}
+        f = {"Mes": mes, **{COLS[k]: auto.get(k, {}).get((y, m), nan) for k in ("dlr", "soja", "maiz", "trigo")}}
         if csv is not None and mes in csv.index:
             for k, c in CSV_COLS.items():
-                if k in csv.columns and pd.notna(csv.loc[mes, k]) and pd.isna(f[c]):  # Rava (en vivo) tiene prioridad
+                if k in csv.columns and pd.notna(csv.loc[mes, k]) and pd.isna(f[c]):
                     f[c] = float(csv.loc[mes, k])
         filas.append(f)
     return pd.DataFrame(filas)
@@ -69,10 +69,14 @@ def chequeo(fut, col, disp, letras, com, iva):
         if ref:
             tk, tna = ref
             interes = tna / 100 * dias / 365
-            comision = disp * interes * com / 100 * (1 + iva / 100) / dlr   # comisión sobre el interés, con IVA
-            be = disp * (1 + interes) / dlr - comision
+            disp_vto = disp * (1 + interes)                       # pesos que tendría a vencimiento con la letra
+            sin = disp_vto / dlr                                  # ese monto expresado en USD al dólar futuro
+            comision = disp * interes * com / 100 * (1 + iva / 100) / dlr   # costo sobre el interés, con IVA
+            neto = sin - comision
             fila.update({"Letra ref.": tk, "TNA letra %": tna, "Spread TNA (pp)": fila["TNA implícita %"] - tna,
-                         "Equivalente (USD/tn)": be, "Dif. (USD/tn)": f - be, "Dif. %": (f / be - 1) * 100})
+                         "Disponible a vto ($/tn)": disp_vto, "Equivalente sin comisión (USD/tn)": sin,
+                         "Comisión (USD/tn)": comision, "Equivalente neto (USD/tn)": neto,
+                         "Dif. (USD/tn)": f - neto, "Dif. %": (f / neto - 1) * 100})
         filas.append(fila)
     return pd.DataFrame(filas)
 
