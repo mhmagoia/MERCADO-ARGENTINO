@@ -73,10 +73,12 @@ def chequeo(fut, col, disp, letras, com, iva):
             sin = disp_vto / dlr                                  # ese monto expresado en USD al dólar futuro
             comision = disp * interes * com / 100 * (1 + iva / 100) / dlr   # costo sobre el interés, con IVA
             neto = sin - comision
+            neto_p = disp_vto - disp * interes * com / 100 * (1 + iva / 100)   # lo mismo, en pesos por tonelada
             fila.update({"Letra ref.": tk, "TNA letra %": tna, "Spread TNA (pp)": fila["TNA implícita %"] - tna,
                          "Disponible a vto ($/tn)": disp_vto, "Equivalente sin comisión (USD/tn)": sin,
                          "Comisión (USD/tn)": comision, "Equivalente neto (USD/tn)": neto,
-                         "Dif. (USD/tn)": f - neto, "Dif. %": (f / neto - 1) * 100})
+                         "Dif. (USD/tn)": f - neto, "Dif. %": (f / neto - 1) * 100,
+                         "Equivalente neto ($/tn)": neto_p, "Dif. ($/tn)": pesos - neto_p})
         filas.append(fila)
     return pd.DataFrame(filas)
 
