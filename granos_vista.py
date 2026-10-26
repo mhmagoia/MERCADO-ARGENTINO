@@ -5,11 +5,23 @@ import streamlit as st
 
 from calculos import calcular
 from granos import CULTIVOS, chequeo, tabla_base
-from granos_datos import COLS, dolar_futuro, pizarra
+from granos_datos import COLS, cierres_a3, dolar_futuro, pizarra
 from ui import AZUL, VERDE, VIOLETA, fmt, tarjetas
 
 NUM2 = st.column_config.NumberColumn(format="%.2f")
 PCT = st.column_config.NumberColumn(format="%.2f%%")
+
+
+def _estilo(df):
+    """Tabla con la diferencia % en verde (futuro paga más) o rojo (conviene disponible + letra)."""
+    dif = [c for c in df.columns if c.endswith("dif. %")]
+    color = lambda x: ("" if pd.isna(x) else "background-color: rgba(39,174,96,.30)" if x > 0
+                       else "background-color: rgba(235,87,87,.30)" if x < 0 else "")
+    s = df.style
+    s = (s.map if hasattr(s, "map") else s.applymap)(color, subset=dif)
+    fm = {c: ("{:+.2f}%" if c in dif else "{:.2f}%" if c.endswith("%") else "{:.1f}")
+          for c in df.columns if c not in ("Mes", "Letra ref.")}
+    return s.format(fm, na_rep="—")
 
 
 def _sec(t, color):
@@ -18,7 +30,9 @@ def _sec(t, color):
 
 def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
     piz = safe("BCR · pizarra", pizarra) or {}
-    dlr = safe("Rava · dólar futuro", dolar_futuro) or {}
+    auto = safe("A3 · ajustes de futuros (CEM)", cierres_a3)
+    if not auto:  # respaldo: solo el dólar de los primeros meses desde Rava
+        auto = {"fecha": None, "dlr": safe("Rava · dólar futuro", dolar_futuro) or {}, "soja": {}, "maiz": {}, "trigo": {}}
     cards = [(f"{n} · {piz[k][1]}" if k in piz else n, fmt(piz[k][0], 0, "$ ") if k in piz else "s/d", None)
              for n, k in CULTIVOS.items()]
     cards += [(f"{n} en USD (÷ A3500)", fmt(piz[k][0] / tc, 1, "USD ") if k in piz and tc else "s/d", None)
@@ -30,17 +44,22 @@ def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
     disp = {k: cols[i].number_input(f"Disponible {n.lower()} ($/tn)", 0.0, 5e7, float(piz.get(k, (0.0,))[0]), 1000.0,
                                     key=f"disp_{k}_{int(piz.get(k, (0.0,))[0])}")
             for i, (n, k) in enumerate(CULTIVOS.items())}
-    com = cols[3].number_input("Comisión sobre el interés (%)", 0.0, 100.0, 4.0, 0.5, key="com")
-    iva = cols[4].number_input("IVA sobre la comisión (%)", 0.0, 50.0, 21.0, 0.5, key="iva")
+    com = cols[3].number_input("Comisión sobre el interés (%)", 0.0, 100.0, 0.0, 0.5, key="com_v2",
+                               help="Costo de operar la letra, aplicado sobre el interés ganado y no sobre el capital. "
+                                    "Tu Excel usaba 4 % (celda L91: 'le puse 4 % de comisión'). En 0 se ve el cálculo sin costos.")
+    iva = cols[4].number_input("IVA sobre la comisión (%)", 0.0, 50.0, 21.0, 0.5, key="iva",
+                               help="Solo se aplica si la comisión es mayor que 0.")
 
-    _sec("Precios de futuros (Matba Rofex / A3), editables", AZUL)
-    base = tabla_base(dlr)
+    fecha = auto.get("fecha")
+    _sec("Precios de futuros (Matba Rofex / A3)" + (f" · ajuste del {fecha:%d/%m/%Y}" if fecha else "") + ", editables", AZUL)
+    base = tabla_base(auto)
     for c in COLS.values():
         base[c] = pd.to_numeric(base[c])
-    ed = st.data_editor(base, hide_index=True, disabled=["Mes"], key="fut_editor",
+    ed = st.data_editor(base, hide_index=True, disabled=["Mes"], key="fut_editor", height=330,
                         column_config={c: NUM2 for c in COLS.values()})
-    st.caption("El dólar futuro de los primeros meses viene de Rava (último precio). El resto y los cereales se "
-               "cargan acá, o desde futuros.csv; se pueden pegar columnas copiadas del visor de Matba Rofex o de Excel.")
+    st.caption("Ajustes del CEM de A3 Mercados (dólar y soja, maíz y trigo de Rosario). Si un contrato no cotiza, la celda "
+               "queda vacía: completala acá o en futuros.csv. Cualquier valor se puede pisar a mano. Los resultados "
+               "aparecen debajo de esta tabla.")
     csv = ed.rename(columns={"Mes": "mes", COLS["dlr"]: "dolar", COLS["soja"]: "soja",
                              COLS["maiz"]: "maiz", COLS["trigo"]: "trigo"}).to_csv(index=False)
     st.download_button("Descargar futuros.csv", csv, "futuros.csv", "text/csv")
@@ -53,15 +72,28 @@ def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
         st.info("Cargá el dólar futuro y el precio de algún cultivo en la tabla para ver el chequeo.")
         return
 
-    _sec("Resumen: futuro vs. disponible + letra (diferencia %)", VERDE)
-    resumen = None
+    mejores = []
+    for n, d in res.items():
+        if "Dif. %" in d and d["Dif. %"].notna().any():
+            r = d.loc[d["Dif. %"].idxmax()]
+            mejores.append((f"{n} · mejor mes {r['Mes']}",
+                            f"USD {fmt(r['Futuro (USD/tn)'], 1)} vs {fmt(r['Equivalente neto (USD/tn)'], 1)}", r["Dif. %"]))
+    if mejores:
+        tarjetas("Mejor oportunidad por cultivo: precio futuro vs. disponible + letra (USD/tn)", mejores, VERDE)
+
+    _sec("Comparación rápida por mes (verde: conviene el futuro · rojo: conviene disponible + letra)", VERDE)
+    resumen, info = None, []
     for n, d in res.items():
         if "Dif. %" in d:
-            x = d[["Mes", "Letra ref.", "TNA letra %", "Dif. %"]].rename(columns={"Dif. %": f"{n} dif. %"})
-            resumen = x if resumen is None else resumen.merge(x[["Mes", f"{n} dif. %"]], on="Mes", how="outer")
+            info.append(d[["Mes", "Letra ref.", "TNA letra %"]])
+            x = d[["Mes", "Futuro (USD/tn)", "Equivalente neto (USD/tn)", "Dif. %"]].rename(
+                columns={"Futuro (USD/tn)": f"{n} futuro", "Equivalente neto (USD/tn)": f"{n} equiv.", "Dif. %": f"{n} dif. %"})
+            resumen = x if resumen is None else resumen.merge(x, on="Mes", how="outer")
+    if resumen is not None:  # la letra de referencia de cada mes, tomada de cualquier cultivo
+        resumen = resumen.merge(pd.concat(info).drop_duplicates("Mes"), on="Mes", how="left")
+        resumen = resumen[["Mes", "Letra ref.", "TNA letra %"] + [c for c in resumen.columns if c not in ("Mes", "Letra ref.", "TNA letra %")]]
     if resumen is not None:
-        st.dataframe(resumen.sort_values("Mes"), hide_index=True, column_config={
-            **{c: PCT for c in resumen.columns if c.endswith("%")}})
+        st.dataframe(_estilo(resumen.sort_values("Mes")), hide_index=True)
     else:
         st.warning("No hay letras en pesos con tasa para comparar (revisá la pestaña Letras).")
 
@@ -71,19 +103,33 @@ def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
     if d.empty:
         st.info(f"Falta el precio futuro de {sel.lower()} o el disponible.")
         return
-    st.dataframe(d, hide_index=True, column_config={c: (PCT if c.endswith("%") else NUM2)
-                                                    for c in d.columns if c not in ("Mes", "Vence", "Días", "Letra ref.")})
-    if "Equivalente (USD/tn)" in d:
+    cfg = lambda cs: {c: (PCT if c.endswith("%") else NUM2) for c in cs if c not in ("Mes", "Vence", "Días", "Letra ref.")}
+    p1 = ["Mes", "Vence", "Días", "Dólar fut. ($)", "Futuro (USD/tn)", "Futuro en $/tn", "Disponible $/tn",
+          "Retorno implícito %", "TNA implícita %"]
+    st.markdown("**Paso 1 · Valor del futuro en pesos**: precio futuro del cultivo (USD/tn) × dólar futuro del mismo mes.")
+    st.dataframe(d[p1], hide_index=True, column_config=cfg(p1))
+    p2 = ["Mes", "Letra ref.", "TNA letra %", "Disponible $/tn", "Disponible a vto ($/tn)", "Dólar fut. ($)",
+          "Equivalente sin comisión (USD/tn)", "Comisión (USD/tn)", "Equivalente neto (USD/tn)", "Futuro (USD/tn)",
+          "Dif. (USD/tn)", "Dif. %"]
+    if "Disponible a vto ($/tn)" in d:
+        st.markdown("**Paso 2 · Disponible llevado a vencimiento con la letra**: pesos a vencimiento ÷ dólar futuro = "
+                    "USD/tn a los que estarías vendiendo el cultivo. Se compara con el precio del futuro.")
+        st.dataframe(d[p2], hide_index=True, column_config=cfg(p2))
+        r = d.iloc[0]
+        st.info(f"Ejemplo {r['Mes']}: {fmt(r['Disponible $/tn'], 0, '$ ')} × (1 + {fmt(r['TNA letra %'], 1, suf='%')} × "
+                f"{int(r['Días'])}/365) = {fmt(r['Disponible a vto ($/tn)'], 0, '$ ')} a vencimiento "
+                f"(letra {r['Letra ref.']}). Dividido el dólar futuro de {fmt(r['Dólar fut. ($)'], 0, '$ ')} da "
+                f"USD {fmt(r['Equivalente sin comisión (USD/tn)'], 1)}/tn, contra USD {fmt(r['Futuro (USD/tn)'], 1)}/tn del futuro.")
+    if "Equivalente neto (USD/tn)" in d:
         fig = go.Figure()
         fig.add_bar(x=d["Mes"], y=d["Futuro (USD/tn)"], name="Precio futuro", marker_color=AZUL)
-        fig.add_bar(x=d["Mes"], y=d["Equivalente (USD/tn)"], name="Disponible + letra", marker_color=VERDE)
+        fig.add_bar(x=d["Mes"], y=d["Equivalente neto (USD/tn)"], name="Disponible + letra", marker_color=VERDE)
         fig.update_layout(barmode="group", title=dict(text=f"{sel}: precio futuro vs. equivalente (USD/tn)",
                           font=dict(size=15)), height=360, yaxis_title="USD/tn",
                           margin=dict(l=8, r=8, t=44, b=8), legend=dict(orientation="h", y=-0.2))
         st.plotly_chart(fig, key=f"granos_{sel}")
-    st.caption("Futuro en $/tn = precio futuro del cultivo (USD/tn) × dólar futuro del mismo mes. Equivalente = "
-               "disponible × (1 + TNA de la letra × días ÷ 365) ÷ dólar futuro − comisión (porcentaje sobre el "
-               "interés, más IVA). Diferencia positiva: el futuro paga más que vender hoy el disponible y colocar "
-               "en la letra. El vencimiento se toma como el último día hábil del mes, sin feriados.")
+    st.caption("Diferencia positiva: el precio del futuro paga más que vender hoy el disponible y colocar los pesos en la "
+               "letra; negativa: conviene lo segundo. La letra de referencia es la LECAP o BONCAP con vencimiento más "
+               "cercano al del futuro. El vencimiento se toma como el último día hábil del mes, sin feriados.")
 
 # FIN granos_vista.py
