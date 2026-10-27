@@ -3,22 +3,27 @@ Dashboard Letras & Mercado AR (Streamlit).
 Archivos: app.py, calculos.py, fuentes.py, ui.py, vistas.py, requirements.txt, flujos.csv
 """
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
+from PIL import Image
 
-st.set_page_config(page_title="Renta Fija Argentina", layout="wide",
-                   initial_sidebar_state="collapsed")
+_ICONO = Path(__file__).with_name("icono.png")
+st.set_page_config(page_title="Renta Fija Argentina", layout="wide", initial_sidebar_state="collapsed",
+                   page_icon=Image.open(_ICONO) if _ICONO.exists() else None)
 
 from calculos import CER, LECAPS, TZ  # noqa: E402
 from fuentes import (BUSCAR, FALLBACK, bcra_serie, bcra_vars, cargar_flujos, dolares,  # noqa: E402
                      panel, serie_ad, var_id)
 from bonos import vista_bonos  # noqa: E402
 from granos_vista import vista_granos  # noqa: E402
+from icono_movil import icono_movil  # noqa: E402
 from macro import vista_macro  # noqa: E402
 from ui import cabecera, estilos, ult, vista_resumen  # noqa: E402
 from vistas import vista_letras  # noqa: E402
 
 estilos()
+icono_movil()
 ESTADO = {}
 
 
