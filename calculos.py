@@ -52,8 +52,11 @@ def parse_ticker(tk):
 def info_ticker(tk, cers):
     if tk in cers and cers[tk][1]:
         return "CER", date.fromisoformat(cers[tk][1])
-    if str(tk).startswith("TZX"):
-        return "CER", None
+    t = str(tk)
+    if t.startswith("TZX") or re.fullmatch(r"TX\d{2}", t) or t in ("DICP", "PARP"):
+        return "CER", None            # cupón cero (TZX…), BONCER (TX26, TX28, TX31) y Discount/Par en pesos
+    if t.startswith("TZV"):
+        return "Dólar-linked", None   # cupón cero atados al dólar
     return parse_ticker(tk)
 
 
@@ -137,7 +140,9 @@ def calcular(df, tc, cer_s, lecaps, cers, flujos, rava=None, fx=None):
             ult_f = max(d for d, _ in rv["flujos"])
             f["Vencimiento"], f["Días"] = ult_f.isoformat(), (ult_f - hoy()).days
             if rv["pesos"]:                                 # flujos en pesos (CER, tasa fija, dólar-linked)
-                pc, tasa = (None if usd_row else p), ("Real (CER constante)" if rv["cer"] else "Pesos")
+                etiqueta = ("Real (CER constante)" if tipo == "CER" else "USD" if tipo == "Dólar-linked"
+                            else "Pesos" if tipo in ("LECAP", "BONCAP") else ("Real (CER constante)" if rv["cer"] else "Pesos"))
+                pc, tasa = (None if usd_row else p), etiqueta
             elif usd_row:                                   # ticker D/C: precio ya está en USD
                 pc, tasa = p, "USD"
             else:                                           # ticker en pesos de un bono en USD
