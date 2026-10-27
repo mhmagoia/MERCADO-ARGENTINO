@@ -98,7 +98,7 @@ def tablero():
         vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
                       im, rm, a3500, b_sup, b_inf)
     with tab2:
-        vista_letras(notes, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
+        vista_letras(notes, bonos, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
     with tab3:
         vista_macro(a3500, cer, riesgo, infl, tamar, badlar)
     with tab4:
