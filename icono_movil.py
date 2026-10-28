@@ -4,7 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
-NOMBRE, COLOR = "Magoia", "#FFFFFF"
+NOMBRE, COLOR = "Fin MAGOIA", "#FFFFFF"
 
 JS = """<script>
 (function () {
