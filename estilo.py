@@ -121,7 +121,7 @@ def cabecera():
 def marca_lateral():
     logo = _b64("logo.png", "image/png")
     img = f'<img src="{logo}" alt="M">' if logo else ""
-    st.markdown(f'<div class="marca">{img}<div class="marca-n"> Consultora  Agrofinanzas     Ing. Agronomo, Magister en Finanzas</div>'
+    st.markdown(f'<div class="marca">{img}<div class="marca-n"> Consultora y Agrofinanzas     Ing. Agronomo, Magister en Finanzas</div>'
                 '<div class="marca-m">Mauro Magoia</div></div>', unsafe_allow_html=True)
 
 
