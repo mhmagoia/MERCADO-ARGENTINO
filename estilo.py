@@ -111,7 +111,7 @@ def cabecera():
     foto = _b64("banner.jpg", "image/jpeg")
     fondo = f'<div class="hero-r" style="background-image:url(\'{foto}\')"></div>' if foto else '<div class="hero-r sin"></div>'
     d = datetime.now(TZ)
-    st.markdown(f'<div class="hero">{fondo}<div class="hero-t">Consultora Agrofinanzas <b>Magoia</b></div>'
+    st.markdown(f'<div class="hero">{fondo}<div class="hero-t"> Consultora Agrofinanzas <b>M. Magoia</b></div>'
                 '<div class="hero-s">Mercados · Finanzas · Agro &nbsp;|&nbsp; Análisis, información y herramientas '
                 'para tomar mejores decisiones</div>'
                 f'<div class="hero-f">Tablero de renta fija, tasas y granos · {d.day} {MESES[d.month - 1]} {d.year}</div></div>',
