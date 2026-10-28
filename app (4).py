@@ -9,7 +9,7 @@ import streamlit as st
 from PIL import Image
 
 _ICONO = Path(__file__).with_name("icono.png")
-st.set_page_config(page_title="Consultora Agrofinanzas Magoia", layout="wide", initial_sidebar_state="auto",
+st.set_page_config(page_title="Consultora Agrofinanzas M. Magoia", layout="wide", initial_sidebar_state="auto",
                    page_icon=Image.open(_ICONO) if _ICONO.exists() else None)
 
 from calculos import CER, LECAPS, TZ  # noqa: E402
