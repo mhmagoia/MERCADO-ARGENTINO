@@ -9,17 +9,18 @@ import streamlit as st
 from PIL import Image
 
 _ICONO = Path(__file__).with_name("icono.png")
-st.set_page_config(page_title="Renta Fija Argentina", layout="wide", initial_sidebar_state="collapsed",
+st.set_page_config(page_title="Consultora Agrofinanzas Magoia", layout="wide", initial_sidebar_state="auto",
                    page_icon=Image.open(_ICONO) if _ICONO.exists() else None)
 
 from calculos import CER, LECAPS, TZ  # noqa: E402
 from fuentes import (BUSCAR, FALLBACK, bcra_serie, bcra_vars, cargar_flujos, dolares,  # noqa: E402
                      panel, serie_ad, var_id)
 from bonos import vista_bonos  # noqa: E402
+from estilo import cabecera, estilos, lema, marca_lateral  # noqa: E402
 from granos_vista import vista_granos  # noqa: E402
 from icono_movil import icono_movil  # noqa: E402
 from macro import vista_macro  # noqa: E402
-from ui import cabecera, estilos, ult, vista_resumen  # noqa: E402
+from ui import ult, vista_resumen  # noqa: E402
 from vistas import vista_letras  # noqa: E402
 
 estilos()
@@ -39,11 +40,13 @@ def safe(nombre, fn, *a):
 
 # ── Barra lateral ────────────────────────────────────────────────────────────────────────
 with st.sidebar:
+    marca_lateral()
     st.header("Opciones")
     refresco = st.select_slider("Actualizar cada", ["30s", "1m", "2m", "5m"], "1m")
     if st.button("Actualizar ahora"):
         st.cache_data.clear()
     st.caption("Los datos de mercado pueden tener demora. Esto no es asesoramiento financiero.")
+    lema()
 
 cabecera()
 
@@ -96,7 +99,7 @@ def tablero():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["Resumen", "Letras", "Macro", "Bonos y ONs", "Granos y futuros"])
     with tab1:
         vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
-                      im, rm, a3500, b_sup, b_inf)
+                      im, rm, a3500, b_sup, b_inf, riesgo)
     with tab2:
         vista_letras(notes, bonos, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
     with tab3:
@@ -109,7 +112,7 @@ def tablero():
     with st.expander("Estado de las fuentes"):
         for k, v in ESTADO.items():
             st.write(f"{v.replace('✅', 'OK').replace('⚠️', 'Aviso').replace('❌', 'Error')} · {k}")
-    st.caption(f"Última actualización: {datetime.now(TZ):%d/%m/%Y %H:%M:%S} (hora Argentina)")
+    st.caption(f"Última actualización: {datetime.now(TZ):%d/%m/%Y %H:%M:%S} (hora Argentina) · Consultora Agrofinanzas Magoia · Gestión agropecuaria integral")
 
 
 tablero()
