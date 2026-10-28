@@ -4,7 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
-NOMBRE, COLOR = "Inv. MAGOIA", "#FFFFFF"
+NOMBRE, COLOR = "Magoia", "#FFFFFF"
 
 JS = """<script>
 (function () {
@@ -26,7 +26,7 @@ JS = """<script>
     else { link("icon", {type: "image/png", href: ICON}); }
     quitar('link[rel="apple-touch-icon"]');
     link("apple-touch-icon", {href: ICON});
-    var man = {name: "Renta Fija Argentina", short_name: NOMBRE, display: "standalone", background_color: COLOR,
+    var man = {name: "Consultora Agrofinanzas Magoia", short_name: NOMBRE, display: "standalone", background_color: COLOR,
                theme_color: COLOR, start_url: loc.href, scope: loc.origin + "/",
                icons: [{src: ICON, sizes: "512x512", type: "image/png", purpose: "any"}]};
     var href = "data:application/manifest+json," + encodeURIComponent(JSON.stringify(man));
