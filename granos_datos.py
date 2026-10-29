@@ -1,6 +1,6 @@
 """Datos de la pestaña Granos: pizarra (Cámara Arbitral, BCR), dólar futuro (Rava) y futuros.csv."""
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from html import unescape
 from pathlib import Path
 
@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from calculos import hoy
+from calculos import TZ, hoy
 from fuentes import H, NUM, _num
 
 URL_BCR = "https://www.bcr.com.ar/es/mercados/mercado-de-granos/cotizaciones/cotizaciones-locales-0"
@@ -81,12 +81,14 @@ def cargar_futuros_csv():
 AGRO = {"SOJ": "soja", "MAI": "maiz", "TRI": "trigo"}
 
 
-def parse_cierres(filas):
-    """Ajuste (settlement) por contrato: {'dlr'|'soja'|'maiz'|'trigo': {(año, mes): precio}}.
+def parse_cierres(filas, campo="settlement"):
+    """Precio por contrato: {'dlr'|'soja'|'maiz'|'trigo': {(año, mes): precio}}.
+    campo='settlement': el ajuste (si falta, el último operado). campo='close': el último operado (si falta, el ajuste).
     Dólar: DLR102026. Cereales de Rosario: SOJ.ROS/NOV26, MAI.ROS/DIC26, TRI.ROS/ENE27 (USD/tn)."""
+    otro = "close" if campo == "settlement" else "settlement"
     out = {"dlr": {}, "soja": {}, "maiz": {}, "trigo": {}}
     for f in filas:
-        s, p = f.get("symbol") or "", f.get("settlement") or f.get("close")
+        s, p = f.get("symbol") or "", f.get(campo) or f.get(otro)
         if not p or p <= 0:
             continue
         m = re.fullmatch(r"DLR(\d{2})(\d{4})", s)
@@ -97,6 +99,12 @@ def parse_cierres(filas):
         if m and m[2] in MESES:
             out[AGRO[m[1]]][(2000 + int(m[3]), MESES[m[2]])] = float(p)
     return out
+
+
+def rueda_abierta():
+    """Lunes a viernes de 10:30 a 17:00, hora de Argentina (no considera feriados)."""
+    n = datetime.now(TZ)
+    return n.weekday() < 5 and (10, 30) <= (n.hour, n.minute) < (17, 0)
 
 
 def _dia(segmento, dia, excluir_vacios):
@@ -113,31 +121,44 @@ def _dia(segmento, dia, excluir_vacios):
         pagina += 1
 
 
-def _ultimo_dia(segmento):
-    """Último día hábil con ajustes publicados. Primero pide también los contratos sin volumen."""
+def _pedir_dia(segmento, dia):
+    """Filas del día; pide primero también los contratos sin volumen y, si la API no lo acepta, solo los operados."""
+    for excluir in ("false", "true"):
+        try:
+            filas = _dia(segmento, dia, excluir)
+        except Exception:
+            continue
+        if filas:
+            return filas
+    return []
+
+
+def _dias_recientes(segmento):
+    """((día, filas) del último ajuste, (día, filas) del último operado). Con la rueda en curso pueden ser días distintos."""
+    ajuste = ultimo = None
     for k in range(8):
         dia = hoy() - timedelta(days=k)
         if dia.weekday() >= 5:
             continue
-        for excluir in ("false", "true"):
-            try:
-                filas = _dia(segmento, dia.isoformat(), excluir)
-            except Exception:
-                continue
-            if any((f.get("settlement") or 0) > 0 for f in filas):
-                return dia, filas
-            if filas:
-                break  # rueda en curso, sin ajuste todavía: probar el día anterior
-    raise ValueError("el CEM no devolvió ajustes")
+        filas = _pedir_dia(segmento, dia.isoformat())
+        if not filas:
+            continue
+        if ultimo is None and any((f.get("close") or 0) > 0 for f in filas):
+            ultimo = (dia, filas)
+        if any((f.get("settlement") or 0) > 0 for f in filas):
+            ajuste = (dia, filas)
+            break
+    if ajuste is None:
+        raise ValueError("el CEM no devolvió ajustes")
+    return ajuste, ultimo or ajuste
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def cierres_a3():
-    """Ajustes del último día hábil: dólar futuro y futuros de soja, maíz y trigo (CEM de A3 Mercados)."""
-    f1, filas1 = _ultimo_dia("Monedas")
-    f2, filas2 = _ultimo_dia("Agropecuario")
-    out = parse_cierres(filas1 + filas2)
-    out["fecha"] = min(f1, f2)
-    return out
+    """Dólar futuro y futuros de soja, maíz y trigo (CEM de A3 Mercados): ajuste y último operado, cada uno con su fecha."""
+    (a1, fa1), (u1, fu1) = _dias_recientes("Monedas")
+    (a2, fa2), (u2, fu2) = _dias_recientes("Agropecuario")
+    return {"ajuste": parse_cierres(fa1 + fa2, "settlement"), "ultimo": parse_cierres(fu1 + fu2, "close"),
+            "fecha_ajuste": min(a1, a2), "fecha_ultimo": min(u1, u2)}
 
 # FIN granos_datos.py
