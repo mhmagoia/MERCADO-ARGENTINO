@@ -43,11 +43,13 @@ def tabla_base(auto):
 
 
 def letra_ref(letras, venc):
-    """(ticker, TNA %) de la LECAP/BONCAP en pesos con vencimiento más cercano al del futuro."""
+    """(ticker, TNA %) de la LECAP/BONCAP del Tesoro que vence el mismo mes que el futuro; si no hay, la más cercana."""
     if letras.empty:
         return None
-    d = letras.assign(dist=[abs((date.fromisoformat(v) - venc).days) for v in letras["Vencimiento"]])
-    r = d.sort_values("dist").iloc[0]
+    v = pd.to_datetime(letras["Vencimiento"]).dt.date
+    d = letras.assign(mismo_mes=[(x.year, x.month) == (venc.year, venc.month) for x in v],
+                      dist=[abs((x - venc).days) for x in v])
+    r = d.sort_values(["mismo_mes", "dist"], ascending=[False, True]).iloc[0]
     return r["Ticker"], float(r["TNA %"])
 
 
