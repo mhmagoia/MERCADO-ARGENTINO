@@ -3,13 +3,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from calculos import calcular
+from calculos import calcular, info_ticker
 from granos import CULTIVOS, chequeo, tabla_base
 from granos_datos import COLS, cierres_a3, dolar_futuro, pizarra, rueda_abierta
 from granos_tablas import NUM2, PCT, elegir_precios, estilo_tabla, resumen_mes, sec
 from ui import AZUL, VERDE, VIOLETA, fmt, tarjetas
 
-def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
+def vista_granos(notes, bonos, tc, cer, lecaps, cers, flujos, safe):
     piz = safe("BCR · pizarra", pizarra) or {}
     a3 = safe("A3 · precios de futuros (CEM)", cierres_a3)
     rava_dlr = safe("Rava · dólar futuro", dolar_futuro) or {}
@@ -51,7 +51,11 @@ def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
                              COLS["maiz"]: "maiz", COLS["trigo"]: "trigo"}).to_csv(index=False)
     st.download_button("Descargar futuros.csv", csv, "futuros.csv", "text/csv")
 
-    letras = calcular(notes, tc, cer, lecaps, cers, flujos) if notes is not None and len(notes) else pd.DataFrame()
+    marcos = [d for d in (notes, bonos) if d is not None and len(d)]   # letras y bonos del Tesoro a tasa fija
+    univ = pd.concat(marcos).drop_duplicates("symbol") if marcos else pd.DataFrame()
+    if len(univ):
+        univ = univ[[info_ticker(s, cers)[0] in ("LECAP", "BONCAP") for s in univ["symbol"]]]
+    letras = calcular(univ, tc, cer, lecaps, cers, flujos) if len(univ) else pd.DataFrame()
     if not letras.empty:
         letras = letras[(letras["Tasa en"] == "Pesos") & letras["TNA %"].notna()]
     res = {n: chequeo(ed, COLS[k], disp[k], letras, com, iva) for n, k in CULTIVOS.items()}
@@ -119,7 +123,7 @@ def vista_granos(notes, tc, cer, lecaps, cers, flujos, safe):
                           margin=dict(l=8, r=8, t=44, b=8), legend=dict(orientation="h", y=-0.2))
         st.plotly_chart(fig, key=f"granos_{sel}")
     st.caption("Diferencia positiva: el precio del futuro paga más que vender hoy el disponible y colocar los pesos en la "
-               "letra; negativa: conviene lo segundo. La letra de referencia es la LECAP o BONCAP con vencimiento más "
-               "cercano al del futuro. El vencimiento se toma como el último día hábil del mes, sin feriados.")
+               "letra; negativa: conviene lo segundo. La tasa sale de la LECAP o BONCAP del Tesoro que vence el mismo mes "
+               "que el futuro; si no hay, de la más cercana. El vencimiento se toma como el último día hábil del mes, sin feriados.")
 
 # FIN granos_vista.py
