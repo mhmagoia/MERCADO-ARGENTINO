@@ -9,7 +9,7 @@ import streamlit as st
 from PIL import Image
 
 _ICONO = Path(__file__).with_name("icono.png")
-st.set_page_config(page_title="Consultorias Agrofinancieras Magoia", layout="wide", initial_sidebar_state="auto",
+st.set_page_config(page_title="Consultora Agrofinanzas Magoia", layout="wide", initial_sidebar_state="auto",
                    page_icon=Image.open(_ICONO) if _ICONO.exists() else None)
 
 from calculos import CER, LECAPS, TZ  # noqa: E402
@@ -107,12 +107,12 @@ def tablero():
     with tab4:
         vista_bonos(bonos, ons, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
     with tab5:
-        vista_granos(notes, tc, cer, lecaps, cers, flujos, safe)
+        vista_granos(notes, bonos, tc, cer, lecaps, cers, flujos, safe)
 
     with st.expander("Estado de las fuentes"):
         for k, v in ESTADO.items():
             st.write(f"{v.replace('✅', 'OK').replace('⚠️', 'Aviso').replace('❌', 'Error')} · {k}")
-    st.caption(f"Última actualización: {datetime.now(TZ):%d/%m/%Y %H:%M:%S} (hora Argentina) · Consultorias Agrofinancieras Magoia · Gestión agropecuaria integral")
+    st.caption(f"Última actualización: {datetime.now(TZ):%d/%m/%Y %H:%M:%S} (hora Argentina) · Consultora Agrofinanzas Magoia · Gestión agropecuaria integral")
 
 
 tablero()
