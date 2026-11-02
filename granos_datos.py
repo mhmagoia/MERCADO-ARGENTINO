@@ -28,7 +28,7 @@ def parse_pizarra(html):
     t = _texto(html)
     i = t.find("Trading date")
     sec = t[i: i + 1800] if i >= 0 else ""
-    fechas = re.findall(r"\d{4}/\d{4}/\d{4}", sec)[:5]
+    fechas = re.findall(r"\d{2}/\d{2}/\d{4}", sec)[:5]
     out = {}
     for nombre, eng, clave in (("Soja", "Soybean", "soja"), ("Maíz", "Yellow corn", "maiz"), ("Trigo", "Wheat", "trigo")):
         j = sec.find(f"{nombre} {eng}")
