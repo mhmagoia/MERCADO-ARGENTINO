@@ -84,4 +84,6 @@ def chequeo(fut, col, disp, letras, com, iva):
         filas.append(fila)
     return pd.DataFrame(filas)
 
+VERSION = 1
+
 # FIN granos.py

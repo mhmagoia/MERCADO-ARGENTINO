@@ -4,7 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
-NOMBRE, COLOR = "Fin MAGOIA", "#FFFFFF"
+NOMBRE, COLOR = "Magoia", "#FFFFFF"
 
 JS = """<script>
 (function () {
@@ -61,5 +61,7 @@ def icono_movil():
         _incrustar(JS.replace("__ICON__", uri).replace("__NOMBRE__", NOMBRE).replace("__COLOR__", COLOR))
     except Exception:
         pass  # el ícono es opcional: si algo falla, la app sigue normal
+
+VERSION = 1
 
 # FIN icono_movil.py

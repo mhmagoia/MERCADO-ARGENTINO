@@ -126,4 +126,6 @@ def vista_granos(notes, bonos, tc, cer, lecaps, cers, flujos, safe):
                "letra; negativa: conviene lo segundo. La tasa sale de la LECAP o BONCAP del Tesoro que vence el mismo mes "
                "que el futuro; si no hay, de la más cercana. El vencimiento se toma como el último día hábil del mes, sin feriados.")
 
+VERSION = 1
+
 # FIN granos_vista.py

@@ -198,4 +198,6 @@ def traer_rava(tickers, etiqueta, estado):
                f"{n_err} páginas con error de conexión"] = ("✅" if not n_err else "⚠️") if res else "❌"
     return res
 
+VERSION = 1
+
 # FIN fuentes.py

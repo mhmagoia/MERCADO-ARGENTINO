@@ -55,4 +55,6 @@ def elegir_precios(a3, rava_dlr, abierta, modo):
         texto += " El CEM todavía no publicó operaciones de hoy, así que no hay precios más frescos que esos."
     return precios, fecha, ultimo, texto
 
+VERSION = 1
+
 # FIN granos_tablas.py

@@ -161,4 +161,6 @@ def cierres_a3():
     return {"ajuste": parse_cierres(fa1 + fa2, "settlement"), "ultimo": parse_cierres(fu1 + fu2, "close"),
             "fecha_ajuste": min(a1, a2), "fecha_ultimo": min(u1, u2)}
 
+VERSION = 1
+
 # FIN granos_datos.py

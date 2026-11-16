@@ -91,4 +91,6 @@ def vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t,
             "A3500 y bandas cambiarias ($ por USD)",
             {"A3500": AZUL, "Banda superior": INDIGO, "Banda inferior": CELESTE})
 
+VERSION = 1
+
 # FIN ui.py

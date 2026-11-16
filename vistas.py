@@ -137,4 +137,6 @@ def vista_letras(notes, bonos, tc, cer, lecaps, cers, flujos, mep, ccl, estado):
                 except Exception:
                     st.error("Formato inválido. Ejemplo de línea: 2027-03-31; 100")
 
+VERSION = 1
+
 # FIN vistas.py

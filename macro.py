@@ -80,4 +80,6 @@ def vista_macro(a3500, cer, riesgo, infl, tamar, badlar):
     grafico({"Riesgo país (pb)": riesgo.tail(365) if riesgo is not None else None},
             "Riesgo país (puntos básicos)", {"Riesgo país (pb)": ROJO})
 
+VERSION = 1
+
 # FIN macro.py

@@ -165,4 +165,6 @@ def calcular(df, tc, cer_s, lecaps, cers, flujos, rava=None, fx=None):
             out[c] = None
     return out.reindex(columns=ORDEN)
 
+VERSION = 1
+
 # FIN calculos.py

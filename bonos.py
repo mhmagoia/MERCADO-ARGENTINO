@@ -55,4 +55,6 @@ def vista_bonos(bonos, ons, tc, cer, lecaps, cers, flujos, mep, ccl, estado):
                "que publica Rava, para contrastar. Bonos en USD: filas D/C con su precio en USD; filas en "
                "pesos convertidas a MEP (a CCL los GD). CER: real, con el CER de hoy constante.")
 
+VERSION = 1
+
 # FIN bonos.py
