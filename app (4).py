@@ -12,16 +12,31 @@ _ICONO = Path(__file__).with_name("icono.png")
 st.set_page_config(page_title="Consultora Agrofinanzas Magoia", layout="wide", initial_sidebar_state="auto",
                    page_icon=Image.open(_ICONO) if _ICONO.exists() else None)
 
-from calculos import CER, LECAPS, TZ  # noqa: E402
-from fuentes import (BUSCAR, FALLBACK, bcra_serie, bcra_vars, cargar_flujos, dolares,  # noqa: E402
-                     panel, serie_ad, var_id)
-from bonos import vista_bonos  # noqa: E402
-from estilo import cabecera, estilos, lema, marca_lateral  # noqa: E402
-from granos_vista import vista_granos  # noqa: E402
-from icono_movil import icono_movil  # noqa: E402
-from macro import vista_macro  # noqa: E402
-from ui import ult, vista_resumen  # noqa: E402
-from vistas import vista_letras  # noqa: E402
+try:
+    from calculos import CER, LECAPS, TZ
+    from fuentes import (BUSCAR, FALLBACK, bcra_serie, bcra_vars, cargar_flujos, dolares,
+                         panel, serie_ad, var_id)
+    from bonos import vista_bonos
+    from estilo import cabecera, estilos, lema, marca_lateral
+    from granos_vista import vista_granos
+    from icono_movil import icono_movil
+    from macro import vista_macro
+    from ui import ult, vista_resumen
+    from vistas import vista_letras
+    from mundo_vista import vista_mundo
+except ImportError as e:
+    st.error(f"Falta subir o actualizar un archivo del repositorio ({e}). Subí todos los archivos del ZIP, no solo algunos.")
+    st.stop()
+
+import importlib  # noqa: E402
+
+REQUERIDAS = {n: 1 for n in ("calculos", "fuentes", "ui", "estilo", "vistas", "macro", "bonos", "granos", "granos_datos",
+                             "granos_tablas", "granos_vista", "icono_movil", "mundo_datos", "mundo_real", "mundo_vista")}
+viejos = [n for n, v in REQUERIDAS.items() if getattr(importlib.import_module(n), "VERSION", 0) < v]
+if viejos:
+    st.error("Hay archivos desactualizados en el repositorio: " + ", ".join(f"{n}.py" for n in viejos)
+             + ". Subí la versión nueva de cada uno (el ZIP los trae todos).")
+    st.stop()
 
 estilos()
 icono_movil()
@@ -96,7 +111,7 @@ def tablero():
     cers = {**CER, **st.session_state.get("extra_cer", {})}
     flujos = safe("flujos.csv", cargar_flujos) or {}
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Resumen", "Letras", "Macro", "Bonos y ONs", "Granos y futuros"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Resumen", "Letras", "Macro", "Bonos y ONs", "Granos y futuros", "Agro mundial"])
     with tab1:
         vista_resumen(tc, tc_d, ofi, mep, ccl, blue, brecha, sup, inf_, rp, rp_d, t, bd, c, c_d,
                       im, rm, a3500, b_sup, b_inf, riesgo)
@@ -108,6 +123,8 @@ def tablero():
         vista_bonos(bonos, ons, tc, cer, lecaps, cers, flujos, mep, ccl, ESTADO)
     with tab5:
         vista_granos(notes, bonos, tc, cer, lecaps, cers, flujos, safe)
+    with tab6:
+        vista_mundo(safe)
 
     with st.expander("Estado de las fuentes"):
         for k, v in ESTADO.items():
